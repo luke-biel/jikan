@@ -1,19 +1,20 @@
 #![feature(path_try_exists)]
 
+use std::{
+    collections::HashMap,
+    env,
+    fs,
+    fs::File,
+    io::{Read, Write},
+    path::{Path, PathBuf},
+};
+
 use anyhow::Context;
-use chrono::{Date, Datelike, Duration, NaiveDate, Utc, Weekday};
+use chrono::{Datelike, Duration, NaiveDate, Utc, Weekday};
 use colored::Colorize;
-use dialoguer::theme::ColorfulTheme;
-use dialoguer::{Editor, Input};
+use dialoguer::{theme::ColorfulTheme, Input};
 use itertools::Itertools;
 use pico_args::Arguments;
-use std::collections::HashMap;
-use std::fs::{File, OpenOptions};
-use std::io::Read;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::thread::current;
-use std::{env, fs};
 
 fn main() -> anyhow::Result<()> {
     let _ = dotenvy::dotenv();
@@ -25,11 +26,6 @@ fn main() -> anyhow::Result<()> {
             .join("jikan"),
     );
 
-    if args.contains(["-h", "--help"]) {
-        print_help()?;
-        return Ok(());
-    }
-
     if args.contains(["-v", "--version"]) {
         print_version()?;
         return Ok(());
@@ -40,14 +36,19 @@ fn main() -> anyhow::Result<()> {
             handle_display(args, data_dir)?;
         }
         Some("set") | Some("s") => handle_set(args, data_dir)?,
-        Some("print") | Some("p") => handle_print(args, data_dir)?,
-        _ => print_help()?,
+        Some("print-csv") | Some("p") => handle_print(args, data_dir)?,
+        _ => print_help("")?,
     }
 
     Ok(())
 }
 
 fn handle_print(mut args: Arguments, data_dir: PathBuf) -> anyhow::Result<()> {
+    if args.contains(["-h", "--help"]) {
+        print_help("print-csv")?;
+        return Ok(());
+    }
+
     let now = if let Some(now) = args.opt_value_from_str(["-d", "--date"])? {
         now
     } else if let Some(month) = args.opt_value_from_str(["-m", "--month"])? {
@@ -82,6 +83,11 @@ fn handle_print(mut args: Arguments, data_dir: PathBuf) -> anyhow::Result<()> {
 }
 
 fn handle_display(mut args: Arguments, data_dir: PathBuf) -> anyhow::Result<()> {
+    if args.contains(["-h", "--help"]) {
+        print_help("display")?;
+        return Ok(());
+    }
+
     let now = if let Some(now) = args.opt_value_from_str(["-d", "--date"])? {
         now
     } else if let Some(month) = args.opt_value_from_str(["-m", "--month"])? {
@@ -108,11 +114,9 @@ fn handle_display(mut args: Arguments, data_dir: PathBuf) -> anyhow::Result<()> 
 }
 
 fn handle_set(mut args: Arguments, data_dir: PathBuf) -> anyhow::Result<()> {
-    #[derive(Default)]
-    struct AddSettings {
-        project: Option<String>,
-        time: Option<usize>,
-        day: Option<NaiveDate>,
+    if args.contains(["-h", "--help"]) {
+        print_help("set")?;
+        return Ok(());
     }
 
     let project: Option<String> = args.opt_value_from_str(["-p", "--project"])?;
@@ -254,7 +258,7 @@ fn draw_timesheet(
 
     let mut iter = now.clone().with_day(1).unwrap();
     while iter.month() == now.month() {
-        let mut amt = data.next().context("Missing day data")?;
+        let amt = data.next().context("Missing day data")?;
 
         if matches!(iter.weekday(), Weekday::Sat | Weekday::Sun) {
             print!(
@@ -274,13 +278,22 @@ fn draw_timesheet(
     Ok(())
 }
 
-fn print_help() -> anyhow::Result<()> {
-    eprintln!(
-        "jikan - cli timesheet\n\
-    usage:\n\n\
-    jikan [command] [args]\n\n\
-    commands: (d)isplay, (s)et"
-    );
+fn print_help(command: &str) -> anyhow::Result<()> {
+    eprintln!("jikan - cli timesheet\nusage:\n");
+    match command {
+        "display" => {
+            eprintln!("    jikan display [args]\n\n    args: -(-p)roject, -(-m)onth OR -(-d)ate")
+        }
+        "print-csv" => {
+            eprintln!("    jikan print-csv [args]\n\n    args: -(-p)roject, -(-m)onth OR -(-d)ate")
+        }
+        "set" => {
+            eprintln!("    jikan set [args]\n\n    args: -(-p)roject, -(-d)ay, -(-h)ours")
+        }
+        _ => {
+            eprintln!("    jikan [command] [args]\n\n    commands: (d)isplay, (s)et, (p)rint-csv");
+        }
+    }
 
     Ok(())
 }
