@@ -8,45 +8,93 @@ use dialoguer::{Editor, Input};
 use itertools::Itertools;
 use pico_args::Arguments;
 use std::collections::HashMap;
-use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io::Read;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::thread::current;
+use std::{env, fs};
 
-// TODO: abstractapi.com/holidays-api
 fn main() -> anyhow::Result<()> {
     let _ = dotenvy::dotenv();
     let mut args = Arguments::from_env();
 
-    let data_dir = option_env!("JIKAN_HOME").map(PathBuf::from).unwrap_or(
+    let data_dir = env::var("JIKAN_HOME").map(PathBuf::from).unwrap_or(
         dirs::data_local_dir()
             .context("Cant fetch local_dir location")?
             .join("jikan"),
     );
+
+    if args.contains(["-h", "--help"]) {
+        print_help()?;
+        return Ok(());
+    }
+
+    if args.contains(["-v", "--version"]) {
+        print_version()?;
+        return Ok(());
+    }
 
     match args.subcommand()?.as_deref() {
         Some("display") | Some("d") => {
             handle_display(args, data_dir)?;
         }
         Some("set") | Some("s") => handle_set(args, data_dir)?,
+        Some("print") | Some("p") => handle_print(args, data_dir)?,
         _ => print_help()?,
     }
 
     Ok(())
 }
 
+fn handle_print(mut args: Arguments, data_dir: PathBuf) -> anyhow::Result<()> {
+    let now = if let Some(now) = args.opt_value_from_str(["-d", "--date"])? {
+        now
+    } else if let Some(month) = args.opt_value_from_str(["-m", "--month"])? {
+        Utc::now()
+            .date()
+            .naive_local()
+            .with_day(1)
+            .context("Cannot set day")?
+            .with_month(month)
+            .context("Cannot set month")?
+    } else {
+        Utc::now().date().naive_local()
+    };
+
+    let project: String = if let Some(project) = args.opt_value_from_str(["-p", "--project"])? {
+        project
+    } else {
+        Input::with_theme(&ColorfulTheme::default())
+            .with_prompt("Project name:")
+            .interact_text()?
+    };
+
+    let timesheet_file_path =
+        data_dir.join(format!("{}-time-{}.csv", project, now.format("%m-%Y")));
+    let mut f = File::open(timesheet_file_path)?;
+    let mut data = String::new();
+    f.read_to_string(&mut data)?;
+
+    print!("{}", data);
+
+    Ok(())
+}
+
 fn handle_display(mut args: Arguments, data_dir: PathBuf) -> anyhow::Result<()> {
-    let now = args
-        .opt_value_from_str(["-d", "--date"])
-        .or_else(|_| {
-            args.opt_value_from_str(["-m", "--month"]).map(|opt| {
-                opt.map(|month: u32| Utc::now().date().naive_local().with_month(month))
-                    .flatten()
-            })
-        })?
-        .unwrap_or_else(|| Utc::now().date().naive_local());
+    let now = if let Some(now) = args.opt_value_from_str(["-d", "--date"])? {
+        now
+    } else if let Some(month) = args.opt_value_from_str(["-m", "--month"])? {
+        Utc::now()
+            .date()
+            .naive_local()
+            .with_day(1)
+            .context("Cannot set day")?
+            .with_month(month)
+            .context("Cannot set month")?
+    } else {
+        Utc::now().date().naive_local()
+    };
 
     let project = if let Some(project) = args.opt_value_from_str(["-p", "--project"])? {
         project
@@ -169,7 +217,7 @@ fn print_display(
     now: NaiveDate,
 ) -> anyhow::Result<()> {
     draw_days(now);
-    draw_month(project, data_dir, now)?;
+    draw_timesheet(project, data_dir, now)?;
 
     Ok(())
 }
@@ -186,7 +234,11 @@ fn draw_days(now: NaiveDate) {
     println!();
 }
 
-fn draw_month(project: String, data_dir: impl AsRef<Path>, now: NaiveDate) -> anyhow::Result<()> {
+fn draw_timesheet(
+    project: String,
+    data_dir: impl AsRef<Path>,
+    now: NaiveDate,
+) -> anyhow::Result<()> {
     let timesheet_file_path =
         data_dir
             .as_ref()
@@ -223,5 +275,18 @@ fn draw_month(project: String, data_dir: impl AsRef<Path>, now: NaiveDate) -> an
 }
 
 fn print_help() -> anyhow::Result<()> {
+    eprintln!(
+        "jikan - cli timesheet\n\
+    usage:\n\n\
+    jikan [command] [args]\n\n\
+    commands: (d)isplay, (s)et"
+    );
+
+    Ok(())
+}
+
+fn print_version() -> anyhow::Result<()> {
+    eprintln!("jikan (version {})", env!("CARGO_PKG_VERSION"));
+
     Ok(())
 }
